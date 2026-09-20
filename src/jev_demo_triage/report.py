@@ -9,7 +9,8 @@ from pathlib import Path
 
 from jev_demo_triage.agent import RunResult
 
-_HEADERS = ("scenario", "mode", "outcome", "steps", "glm_calls", "jev_calls", "tokens", "jev_cost", "time")
+_HEADERS = ("scenario", "mode", "outcome", "steps", "glm_calls", "jev_calls", "tokens", "jev_cost", "time",
+            "llm_gate_calls", "llm_gate_cost", "clf_s")
 
 
 def _outcome(r: RunResult) -> str:
@@ -20,10 +21,11 @@ def _outcome(r: RunResult) -> str:
 
 def _row(r: RunResult) -> tuple[str, ...]:
     m = r.metrics
-    tokens = m.glm.input_tokens + m.glm.output_tokens + m.jev_tokens
+    tokens = m.glm.input_tokens + m.glm.output_tokens + m.jev_tokens + m.llm_gate_tokens
     return (
         r.scenario, r.mode, _outcome(r), str(m.steps), str(m.glm.calls),
         str(m.jev_calls), str(tokens), f"${m.jev_cost_usd:.6f}", f"{m.wall_seconds:.1f}s",
+        str(m.llm_gate_calls), f"${m.llm_gate_cost_usd:.6f}", f"{m.classifier_seconds:.1f}s",
     )
 
 

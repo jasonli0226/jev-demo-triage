@@ -1,5 +1,6 @@
 """Jev classifier that talks to OpenRouter's (alpha) decisions endpoint."""
 
+import time
 from typing import Any
 
 import httpx2
@@ -32,21 +33,31 @@ class OpenRouterClassifier(TypeSafeClassifier):
             self.sink.add(response.usage.input_tokens or 0, response.usage.output_tokens or 0)
         return super()._record_usage(response)
 
+    def _record_seconds(self, started: float) -> None:
+        if self.sink is not None:
+            self.sink.add_seconds(time.perf_counter() - started)
+
     def _classify(self, state):  # noqa: ANN001
+        started = time.perf_counter()
         try:
             return super()._classify(state)
         except TypeSafeNotFoundError as exc:
             raise EndpointChangedError(
                 f"{DECISIONS_URL} returned 404; the OpenRouter alpha endpoint may have moved."
             ) from exc
+        finally:
+            self._record_seconds(started)
 
     async def _aclassify(self, state):  # noqa: ANN001
+        started = time.perf_counter()
         try:
             return await super()._aclassify(state)
         except TypeSafeNotFoundError as exc:
             raise EndpointChangedError(
                 f"{DECISIONS_URL} returned 404; the OpenRouter alpha endpoint may have moved."
             ) from exc
+        finally:
+            self._record_seconds(started)
 
 
 def make_classifier(

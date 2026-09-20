@@ -1,3 +1,5 @@
+import pytest
+
 from jev_demo_triage.tools import Action, RunContext, World, make_tools
 
 
@@ -57,3 +59,53 @@ def test_contexts_are_isolated():
     tools1["restart_service"].invoke({"service": "api"})
     assert ctx2.actions == []
     assert len(ctx1.actions) == 1
+
+
+def _shell_tool(shell, ctx=None):
+    ctx = ctx or RunContext()
+    world = World(logs={}, metrics={}, shell=shell)
+    return ctx, {t.name: t for t in make_tools(world, ctx)}["run_shell"]
+
+
+def test_world_without_shell_falls_back_to_mock_text():
+    ctx, tools = _tools()
+    assert World(logs={}, metrics={}).shell == {}
+    assert tools["run_shell"].invoke({"command": "df -h"}) == "[mock] executed: df -h"
+    assert ctx.actions == [Action("run_shell", {"command": "df -h"})]
+
+
+def test_matching_key_returns_scripted_text_and_records_action():
+    ctx, run = _shell_tool({"df": "Filesystem 99%"})
+    assert run.invoke({"command": "df -h"}) == "Filesystem 99%"
+    assert ctx.actions == [Action("run_shell", {"command": "df -h"})]
+
+
+def test_first_matching_key_in_insertion_order_wins():
+    _, run = _shell_tool({"du": "first", "df": "second"})
+    assert run.invoke({"command": "df -h; du -sh /"}) == "first"
+    _, run = _shell_tool({"df": "second", "du": "first"})
+    assert run.invoke({"command": "df -h; du -sh /"}) == "second"
+
+
+@pytest.mark.parametrize("command", ["df -h", "sudo df -h /var", "ls; df", "df", "echo x && df", "ls | df", "x && df"])
+def test_key_matches_whole_command_word(command):
+    _, run = _shell_tool({"df": "SCRIPTED"})
+    assert run.invoke({"command": command}) == "SCRIPTED"
+
+
+@pytest.mark.parametrize("command", ["cdf -h", "echo undf", "dfx", "echo dfx", "ls /tmp", "ls /var/df/file", "ls --df", 'echo "df"'])
+def test_key_does_not_match_inside_other_words(command):
+    _, run = _shell_tool({"df": "SCRIPTED"})
+    assert run.invoke({"command": command}) == f"[mock] executed: {command}"
+
+
+def test_worlds_do_not_share_shell_state():
+    a = World(logs={}, metrics={})
+    b = World(logs={}, metrics={})
+    assert a.shell is not b.shell
+
+
+def test_key_du_does_not_match_dust():
+    _, run = _shell_tool({"du": "SCRIPTED"})
+    assert run.invoke({"command": "dust /var"}) != "SCRIPTED"
+    assert run.invoke({"command": "du -sh /var"}) == "SCRIPTED"

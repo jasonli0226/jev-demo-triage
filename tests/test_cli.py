@@ -28,7 +28,7 @@ def test_compare_runs_every_scenario(capsys, tmp_path, monkeypatch):
 
     code = main(["--compare"], runner=runner)
     assert code == 0
-    assert len(calls) == 28  # 7 scenarios x 4 modes
+    assert len(calls) == 40  # 8 scenarios x 5 modes
     assert list((tmp_path / "runs").glob("run-*.json"))
 
 
@@ -133,4 +133,35 @@ def test_compare_passes_chosen_policy_to_every_cell(tmp_path, monkeypatch):
 def test_invalid_gate_policy_exits_code_2():
     with pytest.raises(SystemExit) as info:
         main(["--gate-policy", "lax"], runner=lambda *a, **k: _result())
+    assert info.value.code == 2
+
+
+def test_llm_gate_mode_accepted_and_passed_to_runner():
+    calls = []
+
+    def runner(scenario, mode, **kw):
+        calls.append((mode, kw["gate_policy"]))
+        return _result(scenario.name, mode)
+
+    assert main(["--mode", "llm-gate", "--gate-policy", "default"], runner=runner) == 0
+    assert calls == [("llm-gate", "default")]
+
+
+def test_compare_includes_llm_gate_for_every_scenario(tmp_path, monkeypatch):
+    from jev_demo_triage.scenarios import SCENARIOS
+
+    monkeypatch.chdir(tmp_path)
+    calls = []
+
+    def runner(scenario, mode, **kw):
+        calls.append((scenario.name, mode))
+        return _result(scenario.name, mode)
+
+    main(["--compare"], runner=runner)
+    assert sorted(n for n, m in calls if m == "llm-gate") == sorted(SCENARIOS)
+
+
+def test_invalid_mode_exits_code_2():
+    with pytest.raises(SystemExit) as info:
+        main(["--mode", "llm_gate"], runner=lambda *a, **k: _result())
     assert info.value.code == 2

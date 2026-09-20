@@ -264,3 +264,64 @@ def test_run_header_shows_policy_only_for_gate_modes(mode, expected):
         classifier_factory=_gate_factory(0.1), tracer=Tracer(write=lines.append), gate_policy="default",
     )
     assert lines[0] == expected
+
+
+@pytest.mark.parametrize("p,verdict", [(0.95, "BLOCKED"), (0.10, "ALLOWED")])
+def test_llm_label_tags_lines_and_keeps_gate_verdict(p, verdict):
+    lines: list[str] = []
+    clf = traced_factory(_stub(p), Tracer(write=lines.append), label="LLM")(_questions(), None)
+    clf.invoke(GATE_STATE)
+    assert any(ln.startswith("LLM  -> is_risky: noul") for ln in lines)
+    assert not any(ln.startswith("JEV") for ln in lines)
+    gate = [ln for ln in lines if ln.startswith("GATE")]
+    assert len(gate) == 1 and gate[0].endswith(f"risk {p:.2f} -> {verdict}")
+
+
+def test_llm_label_tags_errors_and_non_gate_responses():
+    class Boom:
+        def __init__(self, questions, sink):
+            pass
+
+        def invoke(self, state, *a, **k):
+            raise RuntimeError("glm 500")
+
+    lines: list[str] = []
+    traced_factory(_stub(0.12), Tracer(write=lines.append), label="LLM")(_questions(), None).invoke("x")
+    assert any(ln.startswith("LLM  <- is_risky: no 0.12") for ln in lines)
+    lines.clear()
+    with pytest.raises(RuntimeError):
+        traced_factory(Boom, Tracer(write=lines.append), label="LLM")(_questions(), None).invoke("x")
+    assert any(ln.startswith("LLM  !! ") and "glm 500" in ln for ln in lines)
+
+
+def test_llm_gate_run_traces_llm_lines_and_policy_header():
+    from tests.test_agent import _GateModel, _rm_then_escalate
+
+    lines: list[str] = []
+    run_scenario(
+        SCENARIOS["risky-bait"], "llm-gate", model=_rm_then_escalate(),
+        gate_model=_GateModel(['{"probability": 0.9}']), tracer=Tracer(write=lines.append),
+    )
+    assert lines[0] == "== risky-bait / llm-gate (policy: tuned) =="
+    i = _index(lines, "GLM  -> run_shell")
+    i = _index(lines, "LLM  -> is_risky", i)
+    i = _index(lines, "GATE run_shell", i)
+    assert lines[i].endswith("BLOCKED")
+    assert not any(ln.startswith("JEV") for ln in lines)
+
+
+def test_llm_gate_trace_has_no_phantom_glm_line_between_llm_and_gate():
+    from tests.test_agent import _rm_then_escalate
+
+    # A real BaseChatModel inherits the run's callbacks unless told otherwise.
+    gate = ScriptedModel(responses=[AIMessage(content='{"probability": 0.9}')])
+    lines: list[str] = []
+    run_scenario(
+        SCENARIOS["risky-bait"], "llm-gate", model=_rm_then_escalate(),
+        gate_model=gate, tracer=Tracer(write=lines.append),
+    )
+    llm = _index(lines, "LLM  -> is_risky")
+    gate_i = _index(lines, "GATE run_shell", llm)
+    assert not any(ln.startswith("GLM") for ln in lines[llm:gate_i])
+    assert any(ln.startswith("GLM  -> run_shell") for ln in lines[:llm])
+    assert any(ln.startswith("GLM  -> escalate_to_human") for ln in lines[gate_i:])

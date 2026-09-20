@@ -35,7 +35,7 @@ def _parser() -> argparse.ArgumentParser:
         default="tuned",
         help=(
             "which instructions the gate classifier uses: 'tuned' = operator policy in gate.py, "
-            "'default' = the package's own; only affects gate/both modes"
+            "'default' = the package's own; only affects gate, both and llm-gate modes"
         ),
     )
     return p

@@ -53,3 +53,35 @@ def test_write_json_records_gate_policy_per_run(tmp_path):
     runs = [_result(mode="baseline"), replace(_result(mode="gate"), gate_policy="tuned")]
     data = json.loads(write_json(runs, tmp_path, now=datetime(2026, 9, 20, 12, 30, 5)).read_text())
     assert [d["gate_policy"] for d in data] == [None, "tuned"]
+
+
+def _llm_result():
+    m = RunMetrics(steps=3, glm=GlmUsage(3, 500, 50), jev_calls=0, jev_tokens=0, jev_cost_usd=0.0,
+                   wall_seconds=2.0, classifier_seconds=1.34, llm_gate_calls=4,
+                   llm_gate_tokens=700, llm_gate_cost_usd=0.000512)
+    return RunResult("s9", "gate", True, (), "done", m, None)
+
+
+def test_table_has_new_columns_and_llm_gate_values():
+    lines = format_table([_llm_result()]).splitlines()
+    for col in ("llm_gate_calls", "llm_gate_cost", "clf_s"):
+        assert col in lines[0]
+    assert lines[0].split()[-3:] == ["llm_gate_calls", "llm_gate_cost", "clf_s"]
+    assert lines[1].split()[-3:] == ["4", "$0.000512", "1.3s"]
+
+
+def test_tokens_column_includes_glm_jev_and_llm_gate_tokens():
+    m = _llm_result().metrics
+    r = RunResult("s9", "gate", True, (), "done", RunMetrics(
+        steps=3, glm=m.glm, jev_calls=1, jev_tokens=300, jev_cost_usd=0.0, wall_seconds=2.0,
+        llm_gate_tokens=700), None)
+    row = format_table([r]).splitlines()[1].split()
+    header = format_table([r]).splitlines()[0].split()
+    assert row[header.index("tokens")] == str(500 + 50 + 300 + 700)
+
+
+def test_write_json_includes_new_metric_fields(tmp_path):
+    path = write_json([_llm_result()], tmp_path, now=datetime(2026, 9, 20, 12, 30, 5))
+    m = json.loads(path.read_text())[0]["metrics"]
+    assert m["classifier_seconds"] == 1.34
+    assert (m["llm_gate_calls"], m["llm_gate_tokens"], m["llm_gate_cost_usd"]) == (4, 700, 0.000512)

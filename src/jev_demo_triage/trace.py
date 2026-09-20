@@ -78,8 +78,9 @@ class TraceHandler(BaseCallbackHandler):
 
 
 class _TracedClassifier:
-    def __init__(self, inner: Any, questions: dict, tracer: Tracer) -> None:
+    def __init__(self, inner: Any, questions: dict, tracer: Tracer, label: str = "JEV") -> None:
         self._inner = inner
+        self._label = label
         self._questions = questions
         self._tracer = tracer
 
@@ -90,11 +91,11 @@ class _TracedClassifier:
 
     def invoke(self, state, *args: Any, **kwargs: Any):
         for name, q in self._questions.items():
-            self._tracer.line("JEV", f'-> {name}: {q.type} "{q.instructions}"')
+            self._tracer.line(self._label, f'-> {name}: {q.type} "{q.instructions}"')
         try:
             response = self._inner.invoke(state, *args, **kwargs)
         except Exception as exc:
-            self._tracer.line("JEV", f"!! {exc}")
+            self._tracer.line(self._label, f"!! {exc}")
             raise
         answer = response.nouls.get(QUESTION_ID)
         if isinstance(state, dict) and "tool_call" in state and answer is not None:
@@ -105,12 +106,14 @@ class _TracedClassifier:
                 "GATE", _format_call(call["name"], call["args"]), suffix=f" risk {p:.2f} -> {verdict}"
             )
         else:
-            self._tracer.line("JEV", f"<- {' | '.join(summarize_response(response).splitlines())}")
+            self._tracer.line(self._label, f"<- {' | '.join(summarize_response(response).splitlines())}")
         return response
 
 
-def traced_factory(factory: Callable[..., Any], tracer: Tracer) -> Callable[..., Any]:
+def traced_factory(
+    factory: Callable[..., Any], tracer: Tracer, label: str = "JEV"
+) -> Callable[..., Any]:
     def build(questions, sink):
-        return _TracedClassifier(factory(questions, sink), questions, tracer)
+        return _TracedClassifier(factory(questions, sink), questions, tracer, label)
 
     return build

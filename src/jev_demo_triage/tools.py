@@ -1,5 +1,6 @@
 """Mock incident-response tools. Nothing here touches a real system."""
 
+import re
 from dataclasses import dataclass, field
 
 from langchain_core.tools import BaseTool, tool
@@ -17,6 +18,15 @@ class World:
 
     logs: dict[str, str]
     metrics: dict[str, str]
+    shell: dict[str, str] = field(default_factory=dict)
+
+
+def _scripted_shell_output(shell: dict[str, str], command: str) -> str | None:
+    """Output of the first shell entry whose key appears in `command` as a whole command word."""
+    for key, output in shell.items():
+        if re.search(rf"(?:^|[\s;&|]){re.escape(key)}(?=$|[\s;&|])", command):
+            return output
+    return None
 
 
 @dataclass
@@ -47,7 +57,8 @@ def make_tools(world: World, ctx: RunContext) -> list[BaseTool]:
     def run_shell(command: str) -> str:
         """Run a shell command on the affected host."""
         ctx.record("run_shell", {"command": command})
-        return f"[mock] executed: {command}"
+        scripted = _scripted_shell_output(world.shell, command)
+        return scripted if scripted is not None else f"[mock] executed: {command}"
 
     @tool
     def restart_service(service: str) -> str:

@@ -1,4 +1,5 @@
 import json
+import types
 
 import httpx2
 import pytest
@@ -112,3 +113,63 @@ def test_live_decisions_endpoint():
     out = clf.invoke("The deploy failed twice and customers see 500s.")
     assert out.nouls["urgent"].noul > 0.5
     assert sink.calls == 1
+
+
+def _ticking_clock(monkeypatch, step=0.5):
+    import jev_demo_triage.jev as jev_mod
+
+    state = {"t": 0.0}
+
+    def fake():
+        state["t"] += step
+        return state["t"]
+
+    # Patch only jev's own `time` name so the HTTP library's clock use does not consume ticks.
+    monkeypatch.setattr(jev_mod, "time", types.SimpleNamespace(perf_counter=fake))
+
+
+def test_classifier_time_added_to_sink_per_call_without_double_counting(monkeypatch):
+    _ticking_clock(monkeypatch)
+    sink = UsageSink()
+    clf = make_classifier(
+        {"urgent": Noul(instructions="q")},
+        sink=sink,
+        api_key="k",
+        client=_client(lambda r: httpx2.Response(200, json=NOUL_BODY)),
+    )
+    clf.invoke("x")
+    assert sink.seconds == pytest.approx(0.5)
+    clf.invoke("y")
+    assert sink.seconds == pytest.approx(1.0)
+    assert (sink.calls, sink.input_tokens, sink.output_tokens) == (2, 570, 40)
+
+
+def test_classifier_time_recorded_when_call_raises(monkeypatch):
+    _ticking_clock(monkeypatch)
+    sink = UsageSink()
+    clf = make_classifier(
+        {"urgent": Noul(instructions="q")},
+        sink=sink,
+        api_key="k",
+        client=_client(lambda r: httpx2.Response(404, json={"error": {"message": "nf", "code": 404}})),
+    )
+    with pytest.raises(EndpointChangedError):
+        clf.invoke("x")
+    assert sink.seconds == pytest.approx(0.5)
+    assert sink.calls == 0
+
+
+def test_async_classifier_time_recorded(monkeypatch):
+    import asyncio
+
+    from langchain_typesafe import TypeSafeClassifier
+
+    async def fake_aclassify(self, state):  # noqa: ANN001
+        return "ok"
+
+    monkeypatch.setattr(TypeSafeClassifier, "_aclassify", fake_aclassify)
+    _ticking_clock(monkeypatch)
+    sink = UsageSink()
+    clf = make_classifier({"urgent": Noul(instructions="q")}, sink=sink, api_key="k")
+    assert asyncio.run(clf._aclassify("x")) == "ok"
+    assert sink.seconds == pytest.approx(0.5)

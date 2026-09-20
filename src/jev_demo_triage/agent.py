@@ -17,12 +17,19 @@ from jev_demo_triage.config import (
 from jev_demo_triage.gate import GATE_POLICIES, OpenRouterAutoMode
 from jev_demo_triage.jev import make_classifier
 from jev_demo_triage.jev_tool import make_ask_jev
-from jev_demo_triage.metrics import RunMetrics, UsageSink, build_metrics
+from jev_demo_triage.llm_gate import make_llm_factory
+from jev_demo_triage.metrics import (
+    GLM_INPUT_PRICE_PER_TOKEN,
+    GLM_OUTPUT_PRICE_PER_TOKEN,
+    RunMetrics,
+    UsageSink,
+    build_metrics,
+)
 from jev_demo_triage.scenarios import Scenario
 from jev_demo_triage.tools import Action, RunContext, make_tools
 from jev_demo_triage.trace import TraceHandler, Tracer, traced_factory
 
-MODES = ("baseline", "tool", "gate", "both")
+MODES = ("baseline", "tool", "gate", "both", "llm-gate")
 # LangGraph counts supersteps (model node + tools node per round), so 31 allows 15 model steps.
 RECURSION_LIMIT = 31
 
@@ -76,21 +83,32 @@ def run_scenario(
     classifier_factory=None,
     tracer: Tracer | None = None,
     gate_policy: str = "tuned",
+    llm_sink: UsageSink | None = None,
+    gate_model: BaseChatModel | None = None,
 ) -> RunResult:
     if mode not in MODES:
         raise ValueError(f"Unknown mode '{mode}'. Valid: {', '.join(MODES)}")
     if gate_policy not in GATE_POLICIES:
         raise ValueError(f"Unknown gate policy '{gate_policy}'. Valid: {', '.join(GATE_POLICIES)}")
 
-    gated = mode in ("gate", "both")
+    gated = mode in ("gate", "both", "llm-gate")
     if tracer is not None:
         tracer.header(scenario.name, mode, gate_policy if gated else None)
     ctx = RunContext()
-    sink: UsageSink | None = UsageSink() if mode != "baseline" else None
-    factory = classifier_factory or make_classifier
+    llm_gate = mode == "llm-gate"
+    sink: UsageSink | None = UsageSink() if mode not in ("baseline", "llm-gate") else None
+    if llm_gate:
+        llm_sink = llm_sink or UsageSink(
+            input_price=GLM_INPUT_PRICE_PER_TOKEN, output_price=GLM_OUTPUT_PRICE_PER_TOKEN
+        )
+        # A supplied classifier_factory takes precedence over gate_model.
+        # Deferred: the gate model (and its API key check) is built only when the gate is.
+        factory = classifier_factory or make_llm_factory(lambda: gate_model or make_model())
+    else:
+        factory = classifier_factory or make_classifier
     callbacks = []
     if tracer is not None:
-        factory = traced_factory(factory, tracer)
+        factory = traced_factory(factory, tracer, label="LLM" if llm_gate else "JEV")
         callbacks.append(TraceHandler(tracer))
     tools = make_tools(scenario.world, ctx)
     prompt = SYSTEM_PROMPT
@@ -101,7 +119,9 @@ def run_scenario(
         prompt = SYSTEM_PROMPT + TOOL_MODE_PROMPT
     if gated:
         middleware.append(
-            OpenRouterAutoMode(sink=sink, classifier_factory=factory, policy=gate_policy)
+            OpenRouterAutoMode(
+                sink=llm_sink if llm_gate else sink, classifier_factory=factory, policy=gate_policy
+            )
         )
     agent = create_agent(
         model or make_model(), tools=tools, system_prompt=prompt, middleware=middleware
@@ -133,7 +153,7 @@ def run_scenario(
         passed=error is None and scenario.check(actions),
         actions=actions,
         final_answer=_final_text(messages),
-        metrics=build_metrics(messages, sink, wall),
+        metrics=build_metrics(messages, sink, wall, llm_sink=llm_sink),
         error=error,
         gate_policy=gate_policy if gated else None,
     )
