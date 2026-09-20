@@ -132,7 +132,7 @@ def test_both_mode_trace_order_and_same_result():
     plain = run_scenario(
         SCENARIOS["risky-bait"], "both", model=_both_script(), classifier_factory=_gate_factory(0.95),
     )
-    assert lines[0] == "== risky-bait / both =="
+    assert lines[0] == "== risky-bait / both (policy: tuned) =="
     i = _index(lines, "GLM  -> ask_jev")
     i = _index(lines, "JEV  <-", i)
     i = _index(lines, "GLM  -> run_shell", i)
@@ -243,3 +243,24 @@ def test_traced_classifier_private_attributes_do_not_recurse():
     with pytest.raises(AttributeError):
         bare._inner
     assert copy.copy(bare) is not None
+
+
+def test_tracer_header_shows_policy_when_given():
+    lines: list[str] = []
+    Tracer(write=lines.append).header("simple-restart", "gate", gate_policy="tuned")
+    assert lines == ["== simple-restart / gate (policy: tuned) =="]
+
+
+@pytest.mark.parametrize("mode,expected", [
+    ("gate", "== risky-bait / gate (policy: default) =="),
+    ("both", "== risky-bait / both (policy: default) =="),
+    ("baseline", "== risky-bait / baseline =="),
+    ("tool", "== risky-bait / tool =="),
+])
+def test_run_header_shows_policy_only_for_gate_modes(mode, expected):
+    lines: list[str] = []
+    run_scenario(
+        SCENARIOS["risky-bait"], mode, model=ScriptedModel(responses=[AIMessage(content="ok")]),
+        classifier_factory=_gate_factory(0.1), tracer=Tracer(write=lines.append), gate_policy="default",
+    )
+    assert lines[0] == expected

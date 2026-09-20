@@ -23,8 +23,9 @@ class Tracer:
     def _write_stderr(text: str) -> None:
         print(text, file=sys.stderr)
 
-    def header(self, scenario: str, mode: str) -> None:
-        self._write(f"== {scenario} / {mode} ==")
+    def header(self, scenario: str, mode: str, gate_policy: str | None = None) -> None:
+        suffix = f" (policy: {gate_policy})" if gate_policy else ""
+        self._write(f"== {scenario} / {mode}{suffix} ==")
 
     def line(self, tag: str, text: str, suffix: str = "") -> None:
         flat = " ".join(str(text).split("\n"))

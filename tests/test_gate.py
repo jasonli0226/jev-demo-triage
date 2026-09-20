@@ -4,7 +4,14 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from langchain_typesafe.types import ClassificationResponse
 
-from jev_demo_triage.gate import GATED_TOOLS, QUESTION_ID, OpenRouterAutoMode
+from jev_demo_triage.gate import (
+    GATE_POLICIES,
+    GATED_TOOLS,
+    QUESTION_ID,
+    TUNED_CRITERIA,
+    TUNED_INSTRUCTIONS,
+    OpenRouterAutoMode,
+)
 from jev_demo_triage.metrics import UsageSink
 from tests.conftest import ScriptedModel, ai_tool_call
 
@@ -36,7 +43,7 @@ def _factory(probability):
     return factory, created
 
 
-def _run(probability, tool_name="run_shell", args=None):
+def _run(probability, tool_name="run_shell", args=None, policy="tuned"):
     log = []
 
     @tool
@@ -52,7 +59,7 @@ def _run(probability, tool_name="run_shell", args=None):
 
     factory, created = _factory(probability)
     sink = UsageSink()
-    gate = OpenRouterAutoMode(sink=sink, classifier_factory=factory)
+    gate = OpenRouterAutoMode(sink=sink, classifier_factory=factory, policy=policy)
     model = ScriptedModel(responses=[
         ai_tool_call(tool_name, args or {"command": "rm -rf /data"}),
         AIMessage(content="done"),
@@ -67,36 +74,42 @@ def test_gated_tools_constant():
     assert QUESTION_ID == "is_risky"
 
 
-def test_high_risk_probability_blocks_call():
-    out, log, created, _ = _run(0.9)
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_high_risk_probability_blocks_call(policy):
+    out, log, created, _ = _run(0.9, policy=policy)
     assert log == []
     tool_msg = out["messages"][2]
     assert tool_msg.status == "error" and "blocked" in tool_msg.content
     assert created[0].calls == 1
 
 
-def test_threshold_boundary_blocks_at_half():
-    _, log, _, _ = _run(0.5)
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_threshold_boundary_blocks_at_half(policy):
+    _, log, _, _ = _run(0.5, policy=policy)
     assert log == []
 
 
-def test_low_risk_probability_allows_call():
-    _, log, _, _ = _run(0.1)
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_low_risk_probability_allows_call(policy):
+    _, log, _, _ = _run(0.1, policy=policy)
     assert log == ["rm -rf /data"]
 
 
-def test_ungated_tool_is_not_classified():
-    _, _, created, _ = _run(0.99, tool_name="read_logs", args={"service": "api"})
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_ungated_tool_is_not_classified(policy):
+    _, _, created, _ = _run(0.99, tool_name="read_logs", args={"service": "api"}, policy=policy)
     assert created[0].calls == 0
 
 
-def test_classifier_receives_package_question_and_shared_sink():
-    _, _, created, sink = _run(0.1)
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_classifier_receives_is_risky_question_and_shared_sink(policy):
+    _, _, created, sink = _run(0.1, policy=policy)
     assert QUESTION_ID in created[0].questions
     assert sink.calls == 1 and sink.input_tokens == 200
 
 
-def test_classifier_failure_fails_closed():
+@pytest.mark.parametrize("policy", GATE_POLICIES)
+def test_classifier_failure_fails_closed(policy):
     log = []
 
     @tool
@@ -109,7 +122,7 @@ def test_classifier_failure_fails_closed():
         def invoke(self, *a, **k):
             raise RuntimeError("jev down")
 
-    gate = OpenRouterAutoMode(classifier_factory=lambda q, s: Boom())
+    gate = OpenRouterAutoMode(classifier_factory=lambda q, s: Boom(), policy=policy)
     model = ScriptedModel(responses=[ai_tool_call("run_shell", {"command": "ls"}), AIMessage(content="x")])
     agent = create_agent(model, tools=[run_shell], middleware=[gate])
     with pytest.raises(Exception) as info:
@@ -138,3 +151,33 @@ def test_mirrored_constants_match_package():
 
     assert gate.QUESTION_ID == auto_mode._QUESTION_ID
     assert trace.GATE_BLOCK_THRESHOLD == auto_mode._PROBABILITY_THRESHOLD
+
+
+def test_gate_policies_constant():
+    assert GATE_POLICIES == ("tuned", "default")
+
+
+def test_tuned_policy_is_the_default_and_uses_tuned_question():
+    for gate_kwargs in ({}, {"policy": "tuned"}):
+        factory, created = _factory(0.1)
+        OpenRouterAutoMode(classifier_factory=factory, **gate_kwargs)
+        question = created[0].questions[QUESTION_ID]
+        assert question.instructions == TUNED_INSTRUCTIONS
+        assert question.criteria == TUNED_CRITERIA
+
+
+def test_default_policy_keeps_package_instructions():
+    factory, created = _factory(0.1)
+    OpenRouterAutoMode(classifier_factory=factory, policy="default")
+    question = created[0].questions[QUESTION_ID]
+    assert question.instructions != TUNED_INSTRUCTIONS
+    assert "Only explicit user messages" in question.instructions
+    assert question.criteria != TUNED_CRITERIA
+
+
+def test_unknown_policy_raises_naming_valid_ones():
+    with pytest.raises(ValueError) as info:
+        OpenRouterAutoMode(classifier_factory=_factory(0.1)[0], policy="lax")
+    assert "lax" in str(info.value)
+    assert "tuned" in str(info.value) and "default" in str(info.value)
+

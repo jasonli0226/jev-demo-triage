@@ -28,7 +28,7 @@ def test_compare_runs_every_scenario(capsys, tmp_path, monkeypatch):
 
     code = main(["--compare"], runner=runner)
     assert code == 0
-    assert len(calls) == 16  # 4 scenarios x 4 modes
+    assert len(calls) == 28  # 7 scenarios x 4 modes
     assert list((tmp_path / "runs").glob("run-*.json"))
 
 
@@ -98,4 +98,39 @@ def test_no_trace_flag_calls_runner_without_tracer():
         return _result(scenario.name, mode)
 
     main(["--scenario", "simple-restart"], runner=runner)
-    assert seen == [{}]
+    assert seen == [{"gate_policy": "tuned"}]
+
+
+def _capture():
+    seen = []
+
+    def runner(scenario, mode, **kw):
+        seen.append(kw)
+        return _result(scenario.name, mode)
+
+    return seen, runner
+
+
+def test_gate_policy_flag_reaches_runner():
+    seen, runner = _capture()
+    assert main(["--mode", "gate", "--gate-policy", "default"], runner=runner) == 0
+    assert seen[0]["gate_policy"] == "default"
+
+
+def test_gate_policy_defaults_to_tuned():
+    seen, runner = _capture()
+    main(["--mode", "gate"], runner=runner)
+    assert seen[0]["gate_policy"] == "tuned"
+
+
+def test_compare_passes_chosen_policy_to_every_cell(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    seen, runner = _capture()
+    main(["--compare", "--gate-policy", "default"], runner=runner)
+    assert seen and all(kw["gate_policy"] == "default" for kw in seen)
+
+
+def test_invalid_gate_policy_exits_code_2():
+    with pytest.raises(SystemExit) as info:
+        main(["--gate-policy", "lax"], runner=lambda *a, **k: _result())
+    assert info.value.code == 2

@@ -226,3 +226,84 @@ def test_no_callbacks_key_in_config_when_not_tracing(monkeypatch):
     assert "callbacks" not in configs[0]
     assert configs[0]["recursion_limit"] == agent_mod.RECURSION_LIMIT
     assert len(configs[1]["callbacks"]) == 1
+
+
+def test_unknown_gate_policy_rejected_before_key_or_model(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(ValueError) as info:
+        run_scenario(SCENARIOS["risky-bait"], "gate", model=None, gate_policy="lax")
+    assert "tuned" in str(info.value) and "default" in str(info.value)
+
+
+@pytest.mark.parametrize("policy", ["tuned", "default"])
+@pytest.mark.parametrize("mode", ["gate", "both"])
+def test_gate_and_both_record_gate_policy(mode, policy):
+    model = ScriptedModel(responses=[AIMessage(content="nothing to do")])
+    result = run_scenario(
+        SCENARIOS["risky-bait"], mode, model=model,
+        classifier_factory=_gate_factory(0.1), gate_policy=policy,
+    )
+    assert result.gate_policy == policy
+
+
+def test_gate_policy_defaults_to_tuned():
+    model = ScriptedModel(responses=[AIMessage(content="nothing to do")])
+    result = run_scenario(
+        SCENARIOS["risky-bait"], "gate", model=model, classifier_factory=_gate_factory(0.1),
+    )
+    assert result.gate_policy == "tuned"
+
+
+@pytest.mark.parametrize("mode", ["baseline", "tool"])
+def test_baseline_and_tool_have_no_gate_policy(mode):
+    model = ScriptedModel(responses=[AIMessage(content="nothing to do")])
+    result = run_scenario(
+        SCENARIOS["risky-bait"], mode, model=model,
+        classifier_factory=_gate_factory(0.1), gate_policy="default",
+    )
+    assert result.gate_policy is None
+
+
+def _capturing_factory(seen):
+    def factory(questions, sink):
+        seen.append(questions)
+        return _gate_factory(0.1)(questions, sink)
+
+    return factory
+
+
+def _gate_questions(seen):
+    from jev_demo_triage.gate import QUESTION_ID
+
+    return [q[QUESTION_ID] for q in seen if QUESTION_ID in q]
+
+
+@pytest.mark.parametrize("mode", ["gate", "both"])
+def test_tuned_policy_reaches_gate_classifier_through_run_scenario(mode):
+    from jev_demo_triage.gate import TUNED_CRITERIA, TUNED_INSTRUCTIONS
+
+    seen: list = []
+    run_scenario(
+        SCENARIOS["risky-bait"], mode, model=ScriptedModel(responses=[AIMessage(content="ok")]),
+        classifier_factory=_capturing_factory(seen), gate_policy="tuned",
+    )
+    questions = _gate_questions(seen)
+    assert len(questions) == 1
+    assert questions[0].instructions == TUNED_INSTRUCTIONS
+    assert questions[0].criteria == TUNED_CRITERIA
+
+
+@pytest.mark.parametrize("mode", ["gate", "both"])
+def test_default_policy_reaches_gate_classifier_through_run_scenario(mode):
+    from jev_demo_triage.gate import TUNED_CRITERIA, TUNED_INSTRUCTIONS
+
+    seen: list = []
+    run_scenario(
+        SCENARIOS["risky-bait"], mode, model=ScriptedModel(responses=[AIMessage(content="ok")]),
+        classifier_factory=_capturing_factory(seen), gate_policy="default",
+    )
+    questions = _gate_questions(seen)
+    assert len(questions) == 1
+    assert "Only explicit user messages" in questions[0].instructions
+    assert questions[0].instructions != TUNED_INSTRUCTIONS
+    assert questions[0].criteria != TUNED_CRITERIA

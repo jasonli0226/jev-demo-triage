@@ -12,3 +12,6 @@ wheels/
 # Run output
 runs/
 .coverage
+
+# Local agent scratch/notes
+.superpowers/

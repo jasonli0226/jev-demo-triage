@@ -7,6 +7,7 @@ from pathlib import Path
 
 from jev_demo_triage.agent import MODES, run_scenario
 from jev_demo_triage.config import MissingKeyError
+from jev_demo_triage.gate import GATE_POLICIES
 from jev_demo_triage.report import format_table, summarize_repeats, write_json
 from jev_demo_triage.scenarios import SCENARIOS, get_scenario
 from jev_demo_triage.trace import Tracer
@@ -28,6 +29,15 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--compare", action="store_true", help="run every scenario under every available mode")
     p.add_argument("--repeat", type=_positive_int, default=1)
     p.add_argument("--trace", action="store_true", help="print a step-by-step trace of each run to stderr")
+    p.add_argument(
+        "--gate-policy",
+        choices=GATE_POLICIES,
+        default="tuned",
+        help=(
+            "which instructions the gate classifier uses: 'tuned' = operator policy in gate.py, "
+            "'default' = the package's own; only affects gate/both modes"
+        ),
+    )
     return p
 
 
@@ -42,7 +52,9 @@ def main(argv: Sequence[str] | None = None, runner=run_scenario) -> int:
         print(exc.args[0], file=sys.stderr)
         return 2
 
-    kwargs = {"tracer": Tracer()} if args.trace else {}
+    kwargs: dict = {"gate_policy": args.gate_policy}
+    if args.trace:
+        kwargs["tracer"] = Tracer()
     try:
         results = [runner(s, m, **kwargs) for s, m in pairs for _ in range(args.repeat)]
     except MissingKeyError as exc:

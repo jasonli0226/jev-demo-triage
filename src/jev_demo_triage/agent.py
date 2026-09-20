@@ -14,7 +14,7 @@ from jev_demo_triage.config import (
     glm_model_name,
     require_openrouter_key,
 )
-from jev_demo_triage.gate import OpenRouterAutoMode
+from jev_demo_triage.gate import GATE_POLICIES, OpenRouterAutoMode
 from jev_demo_triage.jev import make_classifier
 from jev_demo_triage.jev_tool import make_ask_jev
 from jev_demo_triage.metrics import RunMetrics, UsageSink, build_metrics
@@ -50,6 +50,7 @@ class RunResult:
     final_answer: str
     metrics: RunMetrics
     error: str | None = None
+    gate_policy: str | None = None
 
 
 def make_model() -> ChatOpenAI:
@@ -74,12 +75,16 @@ def run_scenario(
     model: BaseChatModel | None = None,
     classifier_factory=None,
     tracer: Tracer | None = None,
+    gate_policy: str = "tuned",
 ) -> RunResult:
     if mode not in MODES:
         raise ValueError(f"Unknown mode '{mode}'. Valid: {', '.join(MODES)}")
+    if gate_policy not in GATE_POLICIES:
+        raise ValueError(f"Unknown gate policy '{gate_policy}'. Valid: {', '.join(GATE_POLICIES)}")
 
+    gated = mode in ("gate", "both")
     if tracer is not None:
-        tracer.header(scenario.name, mode)
+        tracer.header(scenario.name, mode, gate_policy if gated else None)
     ctx = RunContext()
     sink: UsageSink | None = UsageSink() if mode != "baseline" else None
     factory = classifier_factory or make_classifier
@@ -94,8 +99,10 @@ def run_scenario(
         assert sink is not None
         tools = [*tools, make_ask_jev(sink, factory)]
         prompt = SYSTEM_PROMPT + TOOL_MODE_PROMPT
-    if mode in ("gate", "both"):
-        middleware.append(OpenRouterAutoMode(sink=sink, classifier_factory=factory))
+    if gated:
+        middleware.append(
+            OpenRouterAutoMode(sink=sink, classifier_factory=factory, policy=gate_policy)
+        )
     agent = create_agent(
         model or make_model(), tools=tools, system_prompt=prompt, middleware=middleware
     )
@@ -128,4 +135,5 @@ def run_scenario(
         final_answer=_final_text(messages),
         metrics=build_metrics(messages, sink, wall),
         error=error,
+        gate_policy=gate_policy if gated else None,
     )

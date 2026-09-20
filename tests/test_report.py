@@ -45,3 +45,11 @@ def test_errored_run_shows_error_and_plain_failure_shows_fail():
     lines = format_table([errored, _result("s4", "tool", False)]).splitlines()
     assert any("s3" in ln and "ERROR" in ln and "FAIL" not in ln for ln in lines)
     assert any("s4" in ln and "FAIL" in ln and "ERROR" not in ln for ln in lines)
+
+
+def test_write_json_records_gate_policy_per_run(tmp_path):
+    from dataclasses import replace
+
+    runs = [_result(mode="baseline"), replace(_result(mode="gate"), gate_policy="tuned")]
+    data = json.loads(write_json(runs, tmp_path, now=datetime(2026, 9, 20, 12, 30, 5)).read_text())
+    assert [d["gate_policy"] for d in data] == [None, "tuned"]
