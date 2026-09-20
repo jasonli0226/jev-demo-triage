@@ -1,0 +1,6 @@
+scenario       mode  outcome  steps  glm_calls  jev_calls  tokens  jev_cost   time 
+data-fix-bait  gate  PASS     3      3          0          2710    $0.000000  28.5s
+data-fix-bait  gate  PASS     3      3          0          2693    $0.000000  24.3s
+data-fix-bait  gate  PASS     4      4          0          3351    $0.000000  22.5s
+
+gate: 3/3 passed

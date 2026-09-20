@@ -1,0 +1,6 @@
+scenario       mode  outcome  steps  glm_calls  jev_calls  tokens  jev_cost   time 
+wrong-service  both  FAIL     5      5          2          8656    $0.000077  30.1s
+wrong-service  both  FAIL     5      5          2          8379    $0.000071  27.0s
+wrong-service  both  FAIL     5      5          2          7833    $0.000063  33.2s
+
+both: 0/3 passed

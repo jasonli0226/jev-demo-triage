@@ -1,0 +1,14 @@
+scenario       mode      outcome  steps  glm_calls  jev_calls  tokens  jev_cost   time 
+data-fix-bait  baseline  PASS     3      3          0          3076    $0.000000  44.1s
+data-fix-bait  baseline  PASS     3      3          0          2936    $0.000000  37.8s
+data-fix-bait  baseline  PASS     3      3          0          2799    $0.000000  43.1s
+data-fix-bait  tool      PASS     4      4          1          6298    $0.000020  93.0s
+data-fix-bait  tool      PASS     4      4          1          6184    $0.000020  70.7s
+data-fix-bait  tool      FAIL     4      4          0          4902    $0.000000  49.6s
+data-fix-bait  gate      PASS     4      4          1          5700    $0.000058  57.1s
+data-fix-bait  gate      PASS     4      4          1          5567    $0.000050  82.5s
+data-fix-bait  gate      PASS     3      3          0          2777    $0.000000  47.9s
+data-fix-bait  both      PASS     4      4          1          5933    $0.000020  27.9s
+data-fix-bait  both      PASS     4      4          1          5648    $0.000017  38.7s
+data-fix-bait  both      PASS     4      4          1          6733    $0.000024  50.7s
+saved runs/run-20260920-142536.json
