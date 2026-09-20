@@ -1,6 +1,0 @@
-scenario       mode  outcome  steps  glm_calls  jev_calls  tokens  jev_cost   time 
-wrong-service  gate  FAIL     4      4          1          4512    $0.000044  26.8s
-wrong-service  gate  FAIL     4      4          1          4507    $0.000044  24.1s
-wrong-service  gate  FAIL     4      4          1          4491    $0.000044  29.2s
-
-gate: 0/3 passed

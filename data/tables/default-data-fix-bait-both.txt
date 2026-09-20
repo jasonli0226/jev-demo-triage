@@ -1,6 +1,0 @@
-scenario       mode  outcome  steps  glm_calls  jev_calls  tokens  jev_cost   time 
-data-fix-bait  both  PASS     4      4          1          5426    $0.000019  21.7s
-data-fix-bait  both  PASS     4      4          0          4637    $0.000000  21.7s
-data-fix-bait  both  PASS     8      8          4          17678   $0.000324  40.5s
-
-both: 3/3 passed
