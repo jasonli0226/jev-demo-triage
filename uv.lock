@@ -376,7 +376,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jev-demo-triage"
+name = "jev-playground"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

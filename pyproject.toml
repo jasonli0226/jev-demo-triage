@@ -1,7 +1,7 @@
 [project]
-name = "jev-demo-triage"
+name = "jev-playground"
 version = "0.1.0"
-description = "Incident-triage agent that uses Jev (TypeSafe System One) as a tool and a tool-risk gate, compared against a plain LLM loop"
+description = "Experiments with Jev (TypeSafe classifier via OpenRouter): an incident-triage agent with Jev as tool and gate, and a smart model router compared against an LLM router"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
+jev-playground = "jev_router_bench.playground:main"
 jev-demo-triage = "jev_demo_triage.__main__:main"
 
 [dependency-groups]
@@ -21,10 +22,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/jev_demo_triage"]
+packages = ["src/jev_demo_triage", "src/jev_router_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not live' --cov=jev_demo_triage --cov-report=term-missing"
+addopts = "-m 'not live' --cov=jev_demo_triage --cov=jev_router_bench --cov-report=term-missing"
 markers = ["live: hits real OpenRouter endpoints (needs OPENROUTER_API_KEY, costs cents)"]
 filterwarnings = ["ignore::langchain_core._api.beta_decorator.LangChainBetaWarning"]
