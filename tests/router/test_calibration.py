@@ -98,8 +98,8 @@ def test_save_and_load_round_trip(tmp_path):
     cal = build_calibration(_runs("a", 0, 2, 2), 2)
     path = save_calibration(cal, tmp_path, now=datetime(2026, 9, 24, 12, 0, 0))
     data = json.loads(path.read_text())
-    assert data["pool"]["strong"]["model_id"] == "anthropic/claude-sonnet-5"
-    assert data["pool"]["strong"]["input_usd_per_million"] == pytest.approx(2.0)
+    assert data["pool"]["strong"]["model_id"] == "moonshotai/kimi-k3"
+    assert data["pool"]["strong"]["input_usd_per_million"] == pytest.approx(3.0)
     assert load_calibration(path) == cal
     assert latest_calibration(tmp_path) == path
 
@@ -144,3 +144,13 @@ def test_load_accepts_none_mean_cost(tmp_path):
         "runs": [],
     }))
     assert load_calibration(path).mean_cost["a"]["cheap"] is None
+
+
+def test_load_accepts_runs_saved_before_reply_was_recorded(tmp_path):
+    cal = build_calibration(_runs("a", 0, 2, 2), 2)
+    path = save_calibration(cal, tmp_path, now=datetime(2026, 9, 24, 12, 0, 0))
+    data = json.loads(path.read_text())
+    for run in data["runs"]:
+        del run["reply"]
+    path.write_text(json.dumps(data))
+    assert all(r.reply is None for r in load_calibration(path).runs)

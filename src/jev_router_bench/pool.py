@@ -9,7 +9,7 @@ from jev_demo_triage.config import OPENROUTER_BASE_URL, require_openrouter_key
 
 Tier = Literal["cheap", "mid", "strong"]
 TIERS: tuple[Tier, ...] = ("cheap", "mid", "strong")
-MAX_TOKENS = 2048
+MAX_TOKENS = 8192  # reasoning models spend part of this before answering
 
 
 @dataclass(frozen=True)
@@ -23,12 +23,13 @@ class PoolModel:
         return input_tokens * self.input_price + output_tokens * self.output_price
 
 
-# Prices as listed by OpenRouter on 2026-09-23. Costs are estimates: prices change
-# and are not read from the API.
+# Prices as listed by OpenRouter on 2026-09-24 (model list price; the provider that
+# serves a request may charge less). Costs are estimates: prices change and are not
+# read from the API. All three models have zero-data-retention endpoints.
 POOL: dict[Tier, PoolModel] = {
-    "cheap": PoolModel("cheap", "qwen/qwen3.7-flash", 0.03 / 1_000_000, 0.13 / 1_000_000),
+    "cheap": PoolModel("cheap", "mistralai/mistral-small-3.2-24b-instruct", 0.075 / 1_000_000, 0.20 / 1_000_000),
     "mid": PoolModel("mid", "z-ai/glm-4.7", 0.40 / 1_000_000, 1.75 / 1_000_000),
-    "strong": PoolModel("strong", "anthropic/claude-sonnet-5", 2.00 / 1_000_000, 10.00 / 1_000_000),
+    "strong": PoolModel("strong", "moonshotai/kimi-k3", 3.00 / 1_000_000, 15.00 / 1_000_000),
 }
 ROUTER_LLM = POOL["mid"]
 

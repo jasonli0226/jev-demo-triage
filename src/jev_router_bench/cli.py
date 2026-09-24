@@ -1,4 +1,4 @@
-"""CLI: jev-playground router {calibrate,route,e2e}"""
+"""CLI: jev-playground router {preflight,calibrate,route,e2e}"""
 
 import argparse
 import sys
@@ -18,6 +18,7 @@ from jev_router_bench.calibration import (
 )
 from jev_router_bench.metrics import reference_costs, summarize_e2e, summarize_route
 from jev_router_bench.pool import POOL, TIERS, Tier, make_chat_model
+from jev_router_bench.preflight import Check, check_models, check_routers, format_checks
 from jev_router_bench.report import format_calibration, format_e2e, format_route
 from jev_router_bench.routers import FixedRouter, JevRouter, LlmRouter, OracleRouter, Router
 from jev_router_bench.runner import calibrate, e2e_eval, route_eval
@@ -48,9 +49,13 @@ def _positive_int(value: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jev-playground router")
     sub = p.add_subparsers(dest="command", required=True)
+    pf = sub.add_parser("preflight", help="one call per tier and per router; exit 1 if any fails")
+    pf.add_argument("--router", choices=(*ROUTER_NAMES, "all"), default="all")
+    pf.add_argument("--task", action="append", help="task the routers route; default the first task")
     c = sub.add_parser("calibrate", help="run every task on every tier to find gold tiers")
     c.add_argument("--repeat", type=_positive_int, default=3)
     c.add_argument("--task", action="append", help="task id (repeatable); default all")
+    c.add_argument("--no-preflight", action="store_true", help="skip the preflight check")
     for name, repeat, text in (
         ("route", 3, "score routers against calibrated gold tiers (no task execution)"),
         ("e2e", 1, "route, run the chosen model and grade its answer"),
@@ -60,6 +65,7 @@ def _parser() -> argparse.ArgumentParser:
         s.add_argument("--repeat", type=_positive_int, default=repeat)
         s.add_argument("--task", action="append", help="task id (repeatable); default all")
         s.add_argument("--calib", type=Path, help="calibration JSON; default newest runs/calib-*.json")
+        s.add_argument("--no-preflight", action="store_true", help="skip the preflight check")
     return p
 
 
@@ -73,6 +79,23 @@ def _end_progress() -> None:
 
 def _router_names(choice: str) -> tuple[str, ...]:
     return ROUTER_NAMES if choice == "all" else (choice,)
+
+
+def _preflight_passes(checks: Sequence[Check]) -> bool:
+    """Prints the checks to stderr; False means the command should stop before any real run."""
+    print(format_checks(checks), file=sys.stderr)
+    if all(c.ok for c in checks):
+        return True
+    print("Preflight failed: fix the errors above, or pass --no-preflight to run anyway.", file=sys.stderr)
+    return False
+
+
+def _preflight(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir: Path) -> int:
+    models = {tier: model_factory(tier) for tier in TIERS}
+    routers = [router_factory(n) for n in _router_names(args.router)]
+    checks = check_models(models) + check_routers(routers, tasks[0])
+    print(format_checks(checks))
+    return 0 if all(c.ok for c in checks) else 1
 
 
 class CalibrationReadError(RuntimeError):
@@ -91,6 +114,8 @@ def _load(args: argparse.Namespace, runs_dir: Path) -> tuple[Path | None, Calibr
 
 def _calibrate(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir: Path) -> int:
     models = {tier: model_factory(tier) for tier in TIERS}
+    if not args.no_preflight and not _preflight_passes(check_models(models)):
+        return 1
     runs = calibrate(tasks, models, args.repeat, on_result=_progress)
     _end_progress()
     cal = build_calibration(runs, args.repeat)
@@ -130,6 +155,8 @@ def _route(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir:
     if not graded:
         return 2
     routers = [router_factory(n) for n in _router_names(args.router)]
+    if not args.no_preflight and not _preflight_passes(check_routers(routers, graded[0])):
+        return 1
     records = route_eval(graded, routers, args.repeat, on_result=_progress)
     _end_progress()
     summaries = summarize_route(records, cal)
@@ -147,8 +174,8 @@ def _route(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir:
 
 def _e2e(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir: Path) -> int:
     path, cal = _load(args, runs_dir)
-    routers: list[Router] = [router_factory(n) for n in _router_names(args.router)]
-    routers += [FixedRouter(tier) for tier in TIERS]
+    named: list[Router] = [router_factory(n) for n in _router_names(args.router)]
+    routers: list[Router] = [*named, *(FixedRouter(tier) for tier in TIERS)]
     if cal is None:
         print("No calibration file: the oracle baseline is skipped.", file=sys.stderr)
     else:
@@ -161,6 +188,10 @@ def _e2e(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir: P
                 file=sys.stderr,
             )
     models = {tier: model_factory(tier) for tier in TIERS}
+    if not args.no_preflight:
+        checks = check_models(models) + check_routers(named, tasks[0])
+        if not _preflight_passes(checks):
+            return 1
     records = e2e_eval(tasks, routers, models, args.repeat, on_result=_progress)
     _end_progress()
     summaries = summarize_e2e(records)
@@ -174,7 +205,7 @@ def _e2e(args, tasks: Sequence[Task], model_factory, router_factory, runs_dir: P
     return 0
 
 
-_COMMANDS = {"calibrate": _calibrate, "route": _route, "e2e": _e2e}
+_COMMANDS = {"preflight": _preflight, "calibrate": _calibrate, "route": _route, "e2e": _e2e}
 
 
 def main(

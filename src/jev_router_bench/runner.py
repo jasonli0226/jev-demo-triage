@@ -28,6 +28,7 @@ class TaskRun:
     cost_usd: float
     seconds: float
     error: str | None = None
+    reply: str | None = None  # the model's answer text; None when the call failed
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class E2ERecord:
     error: str | None = None  # router error; a model error is in run.error
 
 
-def _describe(exc: BaseException) -> str:
+def describe_error(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
@@ -62,20 +63,23 @@ def run_task(task: Task, tier: Tier, model: Any, grader: Grader = grade) -> Task
         raise
     except Exception as exc:  # recorded as an ERROR row; the run continues
         seconds = time.perf_counter() - started
-        return TaskRun(task.id, tier, False, "error", 0, 0, 0.0, seconds, _describe(exc))
+        return TaskRun(task.id, tier, False, "error", 0, 0, 0.0, seconds, describe_error(exc))
     seconds = time.perf_counter() - started
     usage = getattr(reply, "usage_metadata", None) or {}
     input_tokens = usage.get("input_tokens", 0) or 0
     output_tokens = usage.get("output_tokens", 0) or 0
     cost = POOL[tier].cost(input_tokens, output_tokens)
+    text = content_text(reply.content)
     try:
-        result = grader(task, content_text(reply.content))
+        result = grader(task, text)
     except MissingKeyError:
         raise
     except Exception as exc:  # recorded as an ERROR row; measured tokens/cost are kept
-        return TaskRun(task.id, tier, False, "error", input_tokens, output_tokens, cost, seconds, _describe(exc))
+        return TaskRun(
+            task.id, tier, False, "error", input_tokens, output_tokens, cost, seconds, describe_error(exc), text,
+        )
     return TaskRun(
-        task.id, tier, result.passed, result.reason, input_tokens, output_tokens, cost, seconds,
+        task.id, tier, result.passed, result.reason, input_tokens, output_tokens, cost, seconds, reply=text,
     )
 
 
@@ -107,7 +111,7 @@ def _decide(router: Router, task: Task) -> tuple[RouteDecision | None, str | Non
     except MissingKeyError:
         raise
     except Exception as exc:  # recorded as an ERROR row, never a default tier
-        return None, _describe(exc)
+        return None, describe_error(exc)
 
 
 def route_eval(

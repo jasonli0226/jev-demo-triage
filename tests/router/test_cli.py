@@ -68,7 +68,7 @@ def test_route_skips_ungraded_and_not_in_calibration(tmp_path, capsys):
         return RecordingRouter(name, "mid" if name == "jev" else "strong")
 
     code = _main(
-        ["route", "--task", "add-simple", "--task", "percent", "--repeat", "1"],
+        ["route", "--task", "add-simple", "--task", "percent", "--repeat", "1", "--no-preflight"],
         tmp_path,
         router_factory=factory,
     )
@@ -92,7 +92,9 @@ def test_route_all_tasks_not_in_calibration_exits_2(tmp_path, capsys):
     def factory(name):
         return RecordingRouter(name, "mid" if name == "jev" else "strong")
 
-    code = _main(["route", "--task", "percent", "--repeat", "1"], tmp_path, router_factory=factory)
+    code = _main(
+        ["route", "--task", "percent", "--repeat", "1", "--no-preflight"], tmp_path, router_factory=factory
+    )
     assert code == 2
     assert calls == []
     assert "not in calibration" in capsys.readouterr().err
@@ -156,3 +158,63 @@ def test_missing_key_exits_2(tmp_path, capsys):
 def test_repeat_must_be_positive(tmp_path):
     with pytest.raises(SystemExit):
         _main(["calibrate", "--repeat", "0"], tmp_path)
+
+
+class BrokenModel:
+    def invoke(self, *args, **kwargs):
+        raise PermissionError("403 provider Terms Of Service")
+
+
+def broken_strong_factory(tier):
+    return BrokenModel() if tier == "strong" else model_factory(tier)
+
+
+class BrokenRouter(FakeRouter):
+    def route(self, task):
+        raise ValueError("no JSON")
+
+
+def test_preflight_command_passes(tmp_path, capsys):
+    assert _main(["preflight"], tmp_path) == 0
+    out = capsys.readouterr().out
+    for name in ("cheap", "mid", "strong", "router jev", "router llm"):
+        assert name in out
+    assert "FAIL" not in out
+
+
+def test_preflight_command_fails_on_broken_tier(tmp_path, capsys):
+    assert _main(["preflight"], tmp_path, model_factory=broken_strong_factory) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out and "Terms Of Service" in out
+
+
+def test_calibrate_aborts_when_preflight_fails(tmp_path, capsys):
+    code = _main(["calibrate", "--task", "add-simple", "--repeat", "1"], tmp_path, model_factory=broken_strong_factory)
+    assert code == 1
+    assert "Preflight failed" in capsys.readouterr().err
+    assert not list(tmp_path.glob("calib-*.json"))
+
+
+def test_calibrate_no_preflight_runs_anyway(tmp_path):
+    code = _main(
+        ["calibrate", "--task", "add-simple", "--repeat", "1", "--no-preflight"],
+        tmp_path,
+        model_factory=broken_strong_factory,
+    )
+    assert code == 0
+    assert list(tmp_path.glob("calib-*.json"))
+
+
+def test_route_aborts_when_router_preflight_fails(tmp_path, capsys):
+    _main(["calibrate", "--task", "add-simple", "--repeat", "1"], tmp_path)
+    capsys.readouterr()
+    code = _main(["route", "--task", "add-simple"], tmp_path, router_factory=lambda n: BrokenRouter(n))
+    assert code == 1
+    assert "Preflight failed" in capsys.readouterr().err
+    assert not list(tmp_path.glob("router-route-*.json"))
+
+
+def test_e2e_aborts_when_model_preflight_fails(tmp_path, capsys):
+    assert _main(["e2e", "--task", "add-simple"], tmp_path, model_factory=broken_strong_factory) == 1
+    assert "Preflight failed" in capsys.readouterr().err
+    assert not list(tmp_path.glob("router-e2e-*.json"))

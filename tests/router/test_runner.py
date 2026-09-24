@@ -41,6 +41,7 @@ def test_run_task_grades_and_costs():
     assert (run.input_tokens, run.output_tokens) == (100, 50)
     assert run.cost_usd == pytest.approx(POOL["mid"].cost(100, 50))
     assert run.error is None
+    assert run.reply == "ANSWER: 4"
 
 
 def test_run_task_wrong_answer():
@@ -53,6 +54,7 @@ def test_run_task_model_error_is_recorded():
     assert (run.passed, run.reason) == (False, "error")
     assert run.error == "TimeoutError: slow"
     assert run.cost_usd == 0.0
+    assert run.reply is None
 
 
 def test_run_task_grader_exception_is_recorded():
@@ -62,6 +64,7 @@ def test_run_task_grader_exception_is_recorded():
     run = run_task(TASK, "mid", _model("ANSWER: 4"), grader=bad_grader)
     assert (run.passed, run.reason) == (False, "error")
     assert run.error == "RuntimeError: boom"
+    assert run.reply == "ANSWER: 4"
     assert (run.input_tokens, run.output_tokens) == (100, 50)
     assert run.cost_usd == pytest.approx(POOL["mid"].cost(100, 50))
 

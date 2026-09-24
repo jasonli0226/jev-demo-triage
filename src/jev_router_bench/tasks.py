@@ -76,7 +76,8 @@ _MID = (
          "How many times does the letter 'r' appear in the phrase 'strawberry raspberry'?",
          "numeric", 6.0),
     Task("reverse-word", "string", "mid",
-         "Write the word 'encyclopedia' backwards, letter by letter.",
+         "Write the word 'encyclopedia' backwards. Answer with the reversed word only, no spaces "
+         "or separators.",
          "exact", "aidepolcycne"),
     Task("ages", "word-problem", "mid",
          "Maria is twice as old as her son. In 12 years she will be 1.5 times as old as him. "

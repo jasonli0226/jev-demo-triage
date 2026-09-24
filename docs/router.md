@@ -9,11 +9,11 @@ A router reads a task and picks one of three OpenRouter models. The goal is the 
 
 | tier | model | input $/1M | output $/1M |
 |---|---|---|---|
-| cheap | `qwen/qwen3.7-flash` | 0.03 | 0.13 |
+| cheap | `mistralai/mistral-small-3.2-24b-instruct` | 0.075 | 0.20 |
 | mid | `z-ai/glm-4.7` | 0.40 | 1.75 |
-| strong | `anthropic/claude-sonnet-5` | 2.00 | 10.00 |
+| strong | `moonshotai/kimi-k3` | 3.00 | 15.00 |
 
-Prices are OpenRouter's listing on 2026-09-23, hard-coded in `src/jev_router_bench/pool.py`; costs are estimates from token counts.
+Prices are OpenRouter's model list prices on 2026-09-24, hard-coded in `src/jev_router_bench/pool.py`; costs are estimates from token counts, and the provider that serves a request may charge less than the list price. All three models have zero-data-retention (ZDR) endpoints, so the pool works on an OpenRouter account that enforces ZDR. Every model call is capped at 8192 output tokens (`MAX_TOKENS`), because reasoning models spend part of the budget before they answer.
 
 ## Tasks and grading
 
@@ -23,11 +23,14 @@ Prices are OpenRouter's listing on 2026-09-23, hard-coded in `src/jev_router_ben
 
 ## Commands
 
+0. `jev-playground router preflight` sends one short call to each tier and asks each router to route one task. It prints a table of the results and exits 1 if any call fails. `calibrate`, `route` and `e2e` run the same check first and stop before the real run if it fails; pass `--no-preflight` to skip it.
 1. `jev-playground router calibrate --repeat 3` runs every task on every tier. A task's gold tier is the cheapest tier that passes 3/3; `none` if no tier does. It warns when more than 80% of tasks have gold `cheap` (the set is too easy) or more than 30% have `none`.
 2. `jev-playground router route --router all --repeat 3` asks each router for each task and scores against gold: accuracy, 3x3 confusion, under-route (picked cheaper than gold: quality risk), over-route (picked dearer: wasted money), expected task cost from calibration, router cost and latency.
 3. `jev-playground router e2e --router all` routes, runs the chosen model and grades it, next to `always-cheap`, `always-mid`, `always-strong` and `oracle` (gold tier; needs calibration). Reports pass rate, total cost, savings and quality kept versus `always-strong`, latency and tier mix.
 
 `--task ID` (repeatable) limits any command to some tasks; `--calib PATH` picks a calibration file (default: newest `runs/calib-*.json`).
+
+Each saved run keeps the model's answer text in `reply` (on calibration runs and on the `run` of e2e records) and the LLM router's raw answer in `decision.reply`. When the LLM router's answer does not parse, the error message includes the first 2000 characters of it. Calibration files saved before `reply` existed still load.
 
 ## Reading the numbers
 

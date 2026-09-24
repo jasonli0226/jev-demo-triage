@@ -161,3 +161,9 @@ def test_select_tasks():
     assert [t.id for t in select_tasks(["add-simple", "add-simple"])] == ["add-simple"]
     with pytest.raises(KeyError, match="Unknown task"):
         select_tasks(["nope"])
+
+
+def test_reverse_word_asks_for_the_bare_word():
+    task = select_tasks(["reverse-word"])[0]
+    assert "letter by letter" not in task.prompt
+    assert grade(task, "ANSWER: aidepolcycne").passed

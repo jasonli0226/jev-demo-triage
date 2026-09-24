@@ -11,7 +11,7 @@ from langchain_typesafe import Choice
 
 from jev_demo_triage.jev import make_classifier
 from jev_demo_triage.metrics import JEV_INPUT_PRICE_PER_TOKEN, UsageSink
-from jev_router_bench.llm_choice import parse_choice
+from jev_router_bench.llm_choice import LlmRouteError, parse_choice
 from jev_router_bench.pool import ROUTER_LLM, TIERS, Tier, content_text, make_chat_model
 from jev_router_bench.tasks import Task
 
@@ -28,6 +28,8 @@ ROUTE_CRITERIA: dict[Tier, str] = {
         "mistakes are likely."
     ),
 }
+
+MAX_ERROR_REPLY_CHARS = 2000
 
 LLM_ROUTER_SYSTEM_PROMPT = (
     "You are a model router. You are given routing instructions, one description per "
@@ -46,6 +48,7 @@ class RouteDecision:
     output_tokens: int = 0
     seconds: float = 0.0
     cost_usd: float = 0.0
+    reply: str | None = None  # raw router answer, for routers that produce text
 
 
 class Router(Protocol):
@@ -107,7 +110,11 @@ class LlmRouter:
         usage = getattr(reply, "usage_metadata", None) or {}
         input_tokens = usage.get("input_tokens", 0) or 0
         output_tokens = usage.get("output_tokens", 0) or 0
-        tier, probabilities = parse_choice(content_text(reply.content))
+        text = content_text(reply.content)
+        try:
+            tier, probabilities = parse_choice(text)
+        except LlmRouteError as exc:
+            raise LlmRouteError(f"{exc}; full reply: {text[:MAX_ERROR_REPLY_CHARS]!r}") from exc
         return RouteDecision(
             tier=tier,
             probabilities=probabilities,
@@ -115,6 +122,7 @@ class LlmRouter:
             output_tokens=output_tokens,
             seconds=seconds,
             cost_usd=ROUTER_LLM.cost(input_tokens, output_tokens),
+            reply=text,
         )
 
 

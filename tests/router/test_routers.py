@@ -89,6 +89,7 @@ def test_llm_router_parses_choice_and_costs_tokens():
     assert decision.probabilities == {"cheap": 0.1, "mid": 0.2, "strong": 0.7}
     assert (decision.input_tokens, decision.output_tokens) == (200, 20)
     assert decision.cost_usd == pytest.approx(ROUTER_LLM.cost(200, 20))
+    assert decision.reply == '{"choice": "strong", "probabilities": {"cheap": 0.1, "mid": 0.2, "strong": 0.7}}'
 
 
 def test_llm_router_prompt_contains_criteria_and_task():
@@ -110,6 +111,12 @@ def test_llm_router_prompt_contains_criteria_and_task():
 def test_llm_router_bad_answer_raises():
     with pytest.raises(LlmRouteError):
         LlmRouter(model=_fake_llm("I'd pick mid")).route(TASK)
+
+
+def test_llm_router_bad_answer_error_keeps_the_reply():
+    reply = "Thinking about it. " * 20 + "TAIL-MARKER"
+    with pytest.raises(LlmRouteError, match="TAIL-MARKER"):
+        LlmRouter(model=_fake_llm(reply)).route(TASK)
 
 
 def test_fixed_router():
